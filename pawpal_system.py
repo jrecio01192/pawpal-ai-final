@@ -215,12 +215,23 @@ class Scheduler:
                     frequency = task.frequency.casefold()
                     interval = {"daily": 1, "weekly": 7}.get(frequency)
                     if interval is not None:
-                        next_task = Task(
-                            task.description,
-                            task.time + timedelta(days=interval),
-                            task.frequency,
+                        next_time = task.time + timedelta(days=interval)
+                        pet = self.owner.get_pet(task.pet_name)
+                        # Reopening and completing an old task must not create
+                        # duplicate occurrences for the same scheduled time.
+                        already_scheduled = any(
+                            existing.description.casefold() == task.description.casefold()
+                            and existing.time == next_time
+                            and existing.frequency.casefold() == task.frequency.casefold()
+                            for existing in pet.tasks
                         )
-                        self.owner.get_pet(task.pet_name).add_task(next_task)
+                        if not already_scheduled:
+                            next_task = Task(
+                                task.description,
+                                next_time,
+                                task.frequency,
+                            )
+                            pet.add_task(next_task)
                 return task
         raise KeyError(f"No task with ID {task_id!r} belongs to {self.owner.name}.")
 
