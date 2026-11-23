@@ -1,0 +1,21 @@
+flowchart TD
+  U[Pet Owner] --> UI[Streamlit: Pets, Tasks, AI Planner]
+  UI --> DB[(Session data: Owner / Pet / Task / VetVisit)]
+  DB --> RET[Retriever: pending selected-day and overdue tasks]
+  RET --> BASE[Rule-based baseline: priorities and conflicts]
+  BASE --> G{AI mode selected and key provided?}
+  G -->|No| LOCAL[Clearly labeled rules-only preview]
+  G -->|Yes| LLM[OpenAI Responses API: grounded priority explanations]
+  LLM --> VAL{Validate exact task IDs, complete coverage, priorities}
+  VAL -->|Pass| RESULT[Validated AI suggestions]
+  VAL -->|Fail or API error| LOCAL
+  RESULT --> UI2[Results shown in Streamlit]
+  LOCAL --> UI2
+  UI2 --> H[Human reviews actions]
+  H -->|Manually confirm completion| TASKS[Existing Scheduler controls]
+  TASKS --> DB
+  BASE --> LOG[Event logging]
+  VAL --> LOG
+  TEST[Pytest evaluation + fake model responses] --> RET
+  TEST --> BASE
+  TEST --> VAL

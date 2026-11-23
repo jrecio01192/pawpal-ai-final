@@ -1,11 +1,13 @@
-"""PawPal+ Streamlit app: pets, feedings, vet visits, and scheduled tasks."""
+"""PawPal+ Streamlit app: pet care records, tasks, and AI daily care plans."""
 
 from datetime import date, datetime, time
+import os
 
 import streamlit as st
 
 from pawpal_system import Owner, Pet, Scheduler
 from task_management import create_care_task, task_status
+from ai_planner import generate_daily_plan, owner_record_signature
 
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
@@ -22,8 +24,8 @@ if owner_name.strip():
 else:
     st.sidebar.warning("Owner name cannot be blank; using the previous name.")
 
-pets_tab, feeding_tab, vet_tab, tasks_tab = st.tabs(
-    ["Pets", "Feeding", "Vet history", "Tasks"]
+pets_tab, feeding_tab, vet_tab, tasks_tab, planner_tab = st.tabs(
+    ["Pets", "Feeding", "Vet history", "Tasks", "AI Planner"]
 )
 
 with pets_tab:
@@ -219,3 +221,80 @@ with tasks_tab:
                 )
 
     st.caption("Tasks are stored in this Streamlit session and are not saved after the session resets.")
+
+
+with planner_tab:
+    st.subheader("AI Daily Care Planner")
+    st.write(
+        "Review an organized care plan based on your existing PawPal+ tasks. "
+        "The app never changes care records automatically."
+    )
+    if not owner.pets:
+        st.info("Add a pet and at least one task to start planning.")
+    else:
+        plan_date = st.date_input("Plan for", value=date.today(), key="planner_date")
+        plan_mode = st.radio(
+            "Planning mode",
+            ["Rules-only preview (no API key)", "AI recommendations (API key required)"],
+            key="planner_mode",
+            help="AI mode uses an external language model to prioritize and explain your real tasks.",
+        )
+        use_ai = plan_mode.startswith("AI recommendations")
+        api_key = ""
+        if use_ai:
+            api_key = st.text_input(
+                "OpenAI API key", type="password", key="planner_api_key",
+                help="Not written to project files, but kept in this browser session. Alternatively set OPENAI_API_KEY in your environment.",
+            ) or os.getenv("OPENAI_API_KEY", "")
+            st.caption(
+                "AI requests send task names, pet names, scheduled dates, and nearby vet "
+                "visit dates to the selected model. API usage may be billed separately. "
+                "Avoid entering sensitive medical details in task names."
+            )
+        if st.button("Generate daily care plan", type="primary", key="generate_care_plan"):
+            if use_ai and not api_key.strip():
+                st.error("Enter an OpenAI API key to run AI mode, or choose Rules-only preview.")
+            else:
+                with st.spinner("Reviewing your scheduled tasks..."):
+                    result = generate_daily_plan(
+                        owner, plan_date, now=datetime.now(),
+                        use_ai=use_ai, api_key=api_key,
+                    )
+                st.session_state.care_plan_result = result
+                st.session_state.care_plan_signature = owner_record_signature(owner)
+                st.session_state.care_plan_date = plan_date
+                st.session_state.care_plan_mode = plan_mode
+
+        result = st.session_state.get("care_plan_result")
+        if result:
+            if (st.session_state.get("care_plan_signature") != owner_record_signature(owner)
+                    or st.session_state.get("care_plan_date") != plan_date
+                    or st.session_state.get("care_plan_mode") != plan_mode):
+                st.info("Your records or planner settings changed. Generate a new plan to see current results.")
+            else:
+                st.caption(f"Result: {result.mode}")
+                if result.warning:
+                    st.warning(result.warning)
+                st.write(result.summary)
+                if result.items:
+                    for item in result.items:
+                        with st.container(border=True):
+                            st.markdown(f"**{item.priority} priority · {item.pet_name}**")
+                            st.write(item.description)
+                            st.caption(item.scheduled_time.strftime("%b %d, %Y at %I:%M %p"))
+                            if item.overdue:
+                                st.caption("Overdue — verify whether the task was already completed.")
+                            if item.conflict:
+                                st.caption("Scheduling conflict — another task shares this time.")
+                            st.write(item.reason)
+                else:
+                    st.info("No pending tasks to prioritize for this day.")
+                if result.upcoming_visits:
+                    st.subheader("Upcoming recorded vet visits")
+                    for visit in result.upcoming_visits:
+                        st.write(f"• {visit}")
+                st.caption(
+                    "Recommendations are informational only. Check each task before "
+                    "marking it complete in the Tasks tab. This is not veterinary advice."
+                )
+    st.caption("Records are stored in the current Streamlit session only.")
